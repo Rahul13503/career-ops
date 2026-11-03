@@ -60,6 +60,7 @@ import { withPipelineLock } from './pipeline-lock.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
 import { stripEmptyRenderedSections } from './cv-sections-core.mjs';
 import { PAGE_CSS_SIZE, PAGE_FORMATS, normalizePageFormat, pageFormatForCountry, resolvePageFormat } from './lib/page-format.mjs';
+import { browserLaunchOptions } from './lib/browser-launch.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const trackerPath = resolveTrackerPath(getCareerOpsRoot());
@@ -2254,14 +2255,12 @@ export async function inlineLocalFonts(html) {
   return html.replace(FONT_REF, (match, _quote, name) => dataUrls.get(name) || match);
 }
 
-export async function launchChromium(options) {
+// Keep the PDF module's existing launch API while delegating the executable
+// choice to the same resolver every other browser-backed feature uses.
+export async function launchChromium(options = {}) {
   const { chromium } = await import('playwright');
-  const launchOptions = { ...options };
-  const envPath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim();
-  if (!launchOptions.executablePath && envPath) {
-    launchOptions.executablePath = envPath;
-  }
-  return chromium.launch(launchOptions);
+  const { projectRoot, ...launchOptions } = options;
+  return chromium.launch(browserLaunchOptions(launchOptions, { projectRoot }));
 }
 
 /**
@@ -2316,7 +2315,10 @@ export async function renderHtmlToPdf(html, outputPath, opts = {}) {
       console.warn(`⚠️  Shared PDF browser unavailable, painting locally: ${err.message}`);
     }
   }
-  const launchBrowser = opts.launchBrowser || launchChromium;
+  const launchBrowser = opts.launchBrowser || ((options) => launchChromium({
+    ...options,
+    projectRoot: opts.workspaceRoot || workspaceRoot,
+  }));
   let browser = null;
   try {
     browser = await launchBrowser({ headless: true });
